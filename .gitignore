@@ -9,3 +9,6 @@ frontend/node_modules/
 frontend/.output/
 frontend/.wrangler/
 frontend/.env
+.vercel/
+backend/.vercel/
+frontend/.vercel/

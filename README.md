@@ -85,6 +85,31 @@ the explicit local proxy is configured; it never silently switches to mock
 route data. For multi-instance hosting, point Django at a shared production
 database (rather than an ephemeral local SQLite volume).
 
+## Deploy both apps on Vercel
+
+Deploy `backend/` and `frontend/` as two Vercel projects from this same GitHub
+repository. The backend is a Django/Python project that Vercel discovers from
+`manage.py`; the frontend is explicitly configured as TanStack Start.
+
+1. In Vercel Marketplace, create a managed Postgres database (Neon or
+   Supabase), then retain its `DATABASE_URL` connection string. Vercel's Neon
+   integration may inject `POSTGRES_URL` instead; the backend accepts either.
+2. Create the **backend** Vercel project with root directory `backend`. Add
+   `DJANGO_DEBUG=false`, a long random `DJANGO_SECRET_KEY`, the managed
+   `DATABASE_URL`, and `DJANGO_ALLOWED_HOSTS=your-api.vercel.app`. Set the
+   build command to `python manage.py migrate --noinput`, then deploy.
+3. Create the **frontend** Vercel project with root directory `frontend`. Add
+   `VITE_API_BASE_URL=https://your-api.vercel.app`,
+   `VITE_USE_LOCAL_API_PROXY=false`, `VITE_USE_MOCKS=false`, and
+   `NITRO_PRESET=vercel`, then deploy.
+4. Copy the final frontend URL into the backend setting
+   `DJANGO_CORS_ALLOWED_ORIGINS=https://your-frontend.vercel.app`, and
+   redeploy the backend. Test `https://your-api.vercel.app/api/health` before
+   testing route analysis in the frontend.
+
+Full click-by-click instructions are provided in the project handoff. Do not
+commit either app's real secrets or its `DATABASE_URL`.
+
 Run automated checks before submitting:
 
 ```powershell
