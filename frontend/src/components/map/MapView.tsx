@@ -373,7 +373,7 @@ export default function MapView() {
     }
     const next = heatSlot.current === "a" ? "b" : "a";
     (map.getSource(`heat-${next}`) as GeoJSONSource).setData(heatFC(heat.points));
-    map.setPaintProperty(`heat-${next}`, "heatmap-opacity", 0.62);
+    map.setPaintProperty(`heat-${next}`, "heatmap-opacity", 0.78);
     map.setPaintProperty(`heat-${heatSlot.current}`, "heatmap-opacity", 0);
     heatSlot.current = next;
   }, [ready, heat, heatOn]);
