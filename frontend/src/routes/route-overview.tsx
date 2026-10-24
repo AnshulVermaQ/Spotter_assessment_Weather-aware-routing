@@ -29,7 +29,7 @@ export const Route = createFileRoute("/route-overview")({
 
 function PeakWeather({ route }: { route: Route }) {
   const checkpoints = route.checkpoints;
-  const peakWind = Math.max(0, ...checkpoints.map((point) => point.wind_mph));
+  const peakWind = Math.max(0, ...checkpoints.map((point) => Math.max(point.wind_mph, point.wind_gust_mph ?? 0)));
   const peakRain = Math.max(0, ...checkpoints.map((point) => point.rain_in_hr));
   const peakSnow = Math.max(0, ...checkpoints.map((point) => point.snow_in_hr));
   return (
@@ -37,7 +37,7 @@ function PeakWeather({ route }: { route: Route }) {
       <div className="px-2 py-2">
         <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
           <Wind className="size-3" />
-          Peak wind
+          Peak wind / gust
         </dt>
         <dd className="mt-0.5 font-mono text-sm font-semibold">{peakWind.toFixed(0)} mph</dd>
       </div>
@@ -141,7 +141,7 @@ function RouteWeatherSection({ route, recommended }: { route: Route; recommended
                 <tr className="border-b">
                   <th className="px-3 py-2 font-medium">Mile</th>
                   <th className="px-3 py-2 font-medium">ETA</th>
-                  <th className="px-3 py-2 font-medium">Wind</th>
+                  <th className="px-3 py-2 font-medium">Wind / gust</th>
                   <th className="px-3 py-2 font-medium">Rain</th>
                   <th className="px-3 py-2 font-medium">Snow</th>
                   <th className="px-3 py-2 font-medium">Risk / driving factor</th>
@@ -160,7 +160,7 @@ function RouteWeatherSection({ route, recommended }: { route: Route; recommended
                   >
                     <td className="px-3 py-2 font-mono font-semibold">{point.mile}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatTime(point.eta)}</td>
-                    <td className="px-3 py-2 font-mono">{point.wind_mph}</td>
+                    <td className="px-3 py-2 font-mono">{point.wind_mph}{point.wind_gust_mph && point.wind_gust_mph > point.wind_mph ? ` / ${point.wind_gust_mph}` : ""}</td>
                     <td className="px-3 py-2 font-mono">{point.rain_in_hr.toFixed(2)}</td>
                     <td className="px-3 py-2 font-mono">{point.snow_in_hr.toFixed(1)}</td>
                     <td className="px-3 py-2">

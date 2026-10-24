@@ -3,7 +3,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 from django.test import TestCase
 from .models import TripAnalysis
-from .services import classify_risk, fetch_routes, rank_routes
+from .services import _eta_minutes_at_mile, classify_risk, fetch_routes, rank_routes
 
 
 class RiskRulesTests(TestCase):
@@ -15,6 +15,20 @@ class RiskRulesTests(TestCase):
 
     def test_very_heavy_load_turns_high_wind_severe(self):
         self.assertEqual(classify_risk(36, 0, 0, 40001)[0], "Severe")
+
+    def test_wind_gust_can_raise_risk_above_sustained_wind(self):
+        risk, reason = classify_risk(20, 0, 0, 10000, wind_gust_mph=56)
+        self.assertEqual(risk, "No Travel")
+        self.assertIn("gust", reason.lower())
+
+    def test_checkpoint_eta_uses_osrm_step_profile(self):
+        route = {
+            "distance_miles": 100,
+            "duration_minutes": 150,
+            "travel_profile": [(50, 100), (100, 150)],
+        }
+        self.assertEqual(_eta_minutes_at_mile(route, 25), 50)
+        self.assertEqual(_eta_minutes_at_mile(route, 75), 125)
 
     def test_rain_thresholds_apply(self):
         self.assertEqual(classify_risk(10, .25, 0, 10000)[0], "High")
@@ -63,7 +77,7 @@ class RiskRulesTests(TestCase):
                     {"distance": 125_000, "duration": 7_500, "geometry": {"coordinates": [[-87.63, 41.88], [-96, 37], [-104.99, 39.74]]}},
                 ]}
             count = len(parse_qs(urlparse(url).query)["latitude"][0].split(","))
-            hourly = {"time": ["2026-10-24T12:00"], "wind_speed_10m": [20], "rain": [0.05], "showers": [0.02], "snowfall": [0]}
+            hourly = {"time": ["2026-10-24T12:00"], "wind_speed_10m": [20], "wind_gusts_10m": [24], "rain": [0.05], "showers": [0.02], "snowfall": [0]}
             return [{"hourly": hourly} for _ in range(count)]
 
         payload = {

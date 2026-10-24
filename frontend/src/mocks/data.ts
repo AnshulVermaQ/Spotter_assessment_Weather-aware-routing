@@ -234,6 +234,7 @@ function buildRoute(id: string, req: TripRequest, noTravel: boolean): Route {
       name: nearestName(cfg.pts, p),
       eta: new Date(dep + (m / cfg.speed) * 3600000).toISOString(),
       wind_mph: wind,
+      wind_gust_mph: wind,
       rain_in_hr: +r.rain.toFixed(2),
       snow_in_hr: +r.snow.toFixed(1),
       risk: r.risk,

@@ -34,7 +34,7 @@ function popupHtml(c: Checkpoint) {
   return `<div style="font-family:var(--font-sans);font-size:12px;min-width:190px">
     <div style="font-weight:700;font-size:13px">Mile ${c.mile} · ${esc(c.name)}</div>
     <div style="opacity:.75;margin-bottom:6px">ETA ${formatTime(c.eta)}</div>
-    <div style="font-family:var(--font-mono)">Wind ${c.wind_mph} mph<br/>Rain ${c.rain_in_hr.toFixed(2)} in/hr<br/>Snow ${c.snow_in_hr.toFixed(1)} in/hr</div>
+    <div style="font-family:var(--font-mono)">Wind ${c.wind_mph} mph${c.wind_gust_mph && c.wind_gust_mph > c.wind_mph ? `<br/>Gust ${c.wind_gust_mph} mph` : ""}<br/>Rain ${c.rain_in_hr.toFixed(2)} in/hr<br/>Snow ${c.snow_in_hr.toFixed(1)} in/hr</div>
     <div style="margin-top:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${RISK_HEX[c.risk]};margin-right:4px"></span><b>${c.risk}</b></div>
     <div style="margin-top:2px">${esc(c.driving_factor)}</div></div>`;
 }
@@ -54,7 +54,7 @@ function wxEl(c: Checkpoint, i: number) {
       ? "snow"
       : c.rain_in_hr >= 0.08
         ? "rain"
-        : c.wind_mph >= 25
+        : Math.max(c.wind_mph, c.wind_gust_mph ?? 0) >= 25
           ? "wind"
           : "cloud";
   const wrap = document.createElement("div");
@@ -62,7 +62,8 @@ function wxEl(c: Checkpoint, i: number) {
   d.className =
     "animate-wx flex items-center gap-1 rounded-full border bg-card/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-float backdrop-blur";
   d.style.animationDelay = `${(i % 5) * -0.6}s`;
-  d.innerHTML = `<span style="color:${RISK_HEX[c.risk]}">${icon(k)}</span>${k === "snow" ? c.snow_in_hr.toFixed(1) + '"' : k === "rain" ? c.rain_in_hr.toFixed(2) + '"' : c.wind_mph + " mph"}`;
+  const effectiveWind = Math.max(c.wind_mph, c.wind_gust_mph ?? 0);
+  d.innerHTML = `<span style="color:${RISK_HEX[c.risk]}">${icon(k)}</span>${k === "snow" ? c.snow_in_hr.toFixed(1) + '"' : k === "rain" ? c.rain_in_hr.toFixed(2) + '"' : effectiveWind + " mph"}`;
   wrap.appendChild(d);
   return wrap;
 }

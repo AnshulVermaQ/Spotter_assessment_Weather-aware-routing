@@ -135,7 +135,7 @@ export function RouteDetails({ route }: { route: Route }) {
                         {hot && <div className="mt-0.5 text-foreground/90">{c.driving_factor}</div>}
                       </td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-right font-mono">
-                        {c.wind_mph} · {c.rain_in_hr.toFixed(2)} · {c.snow_in_hr.toFixed(1)}
+                        {c.wind_mph}{c.wind_gust_mph && c.wind_gust_mph > c.wind_mph ? ` / gust ${c.wind_gust_mph}` : ""} · {c.rain_in_hr.toFixed(2)} · {c.snow_in_hr.toFixed(1)}
                       </td>
                       <td className="px-2 py-1.5">
                         <RiskBadge risk={c.risk} />

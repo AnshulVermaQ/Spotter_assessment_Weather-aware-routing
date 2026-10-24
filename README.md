@@ -51,10 +51,14 @@ The local frontend uses `http://127.0.0.1:8010`; no Wi-Fi IP address or firewall
 ## Risk and recommendation rules
 
 Each route includes the origin, every selected 10/25/50-mile checkpoint, and
-the destination. Weather is sampled at each checkpoint's calculated arrival
-time. Wind, rain, and snow risks are classified with the supplied thresholds;
+the destination. Checkpoint arrival times use OSRM's road-step duration profile
+instead of spreading the total duration at a constant speed. Weather is sampled
+at each checkpoint's calculated arrival time. Wind, rain, and snow risks are classified with the supplied thresholds;
 rain and snow become **No Travel** only when they are greater than 1.00 in/hr
-and 3.0 in/hr respectively. Load rules can only increase a weather risk.
+and 3.0 in/hr respectively. The higher of sustained wind and hourly wind gust
+is used for wind risk. Load rules can only increase a weather risk. Forecast
+coordinates are deduplicated at four decimal places (about 11 metres), not one
+kilometre.
 
 Viable routes are ranked, in order, by unrounded Severe miles, unrounded High
 miles, average risk score, then travel time. Routes containing a No Travel

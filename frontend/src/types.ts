@@ -17,6 +17,8 @@ export interface Checkpoint {
   name: string;
   eta: string;
   wind_mph: number;
+  /** Hourly gust; risks use the higher of sustained wind and this value. */
+  wind_gust_mph?: number;
   rain_in_hr: number;
   snow_in_hr: number;
   risk: RiskLevel;

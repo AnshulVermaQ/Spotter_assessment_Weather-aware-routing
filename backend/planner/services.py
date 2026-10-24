@@ -60,7 +60,7 @@ def _osrm_routes(coordinates: str, alternatives: int | bool = False) -> list[dic
     """Ask OSRM for genuine road geometry; never invent a route corridor."""
     url = (
         f"https://router.project-osrm.org/route/v1/driving/{coordinates}"
-        f"?alternatives={str(alternatives).lower()}&overview=full&geometries=geojson&steps=false"
+        f"?alternatives={str(alternatives).lower()}&overview=full&geometries=geojson&steps=true"
     )
     try:
         payload = get_json(url)
@@ -70,7 +70,15 @@ def _osrm_routes(coordinates: str, alternatives: int | bool = False) -> list[dic
     for item in payload.get("routes", []):
         geometry = item.get("geometry", {}).get("coordinates", [])
         if len(geometry) > 1:
-            routes.append({"geometry": geometry, "distance_miles": item["distance"] / 1609.344, "duration_minutes": item["duration"] / 60})
+            travelled_miles = travelled_minutes = 0.0
+            travel_profile = []
+            for leg in item.get("legs", []):
+                for step in leg.get("steps", []):
+                    travelled_miles += float(step.get("distance", 0)) / 1609.344
+                    travelled_minutes += float(step.get("duration", 0)) / 60
+                    if travelled_miles > 0:
+                        travel_profile.append((travelled_miles, travelled_minutes))
+            routes.append({"geometry": geometry, "distance_miles": item["distance"] / 1609.344, "duration_minutes": item["duration"] / 60, "travel_profile": travel_profile})
     return routes
 
 
@@ -134,21 +142,23 @@ def _metric_risk(value: float, cuts: tuple[float, float, float, float], *, no_tr
     return "No Travel"
 
 
-def classify_risk(wind_mph: float, rain_in_hr: float, snow_in_hr: float, load_weight_lb: float) -> tuple[str, str]:
-    """Apply weather thresholds and load rules without ever reducing risk."""
+def classify_risk(wind_mph: float, rain_in_hr: float, snow_in_hr: float, load_weight_lb: float, wind_gust_mph: float | None = None) -> tuple[str, str]:
+    """Apply weather thresholds to sustained wind or a higher reported gust."""
+    effective_wind = max(wind_mph, wind_gust_mph or 0)
+    wind_source = "Wind gust" if wind_gust_mph and wind_gust_mph > wind_mph else "Wind"
     risks = [
-        (_metric_risk(wind_mph, (25, 35, 45, 55)), f"Wind {wind_mph:.0f} mph"),
+        (_metric_risk(effective_wind, (25, 35, 45, 55)), f"{wind_source} {effective_wind:.0f} mph"),
         (_metric_risk(rain_in_hr, (0.10, 0.25, 0.50, 1.00), no_travel_at_limit=False), f"Rain {rain_in_hr:.2f} in/hr"),
         (_metric_risk(snow_in_hr, (0.5, 1.0, 2.0, 3.0), no_travel_at_limit=False), f"Snow {snow_in_hr:.1f} in/hr"),
     ]
     base_risk, cause = max(risks, key=lambda item: RISK_SCORE[item[0]])
     load_risk, load_cause = "Low", None
-    if wind_mph >= 55:
-        load_risk, load_cause = "No Travel", f"Wind {wind_mph:.0f} mph >= 55 -> No Travel (any load)"
-    elif 45 <= wind_mph < 55 and load_weight_lb > 30000:
-        load_risk, load_cause = "No Travel", f"Wind {wind_mph:.0f} mph + {load_weight_lb:,.0f} lb load -> No Travel"
-    elif 35 <= wind_mph < 45 and load_weight_lb > 40000:
-        load_risk, load_cause = "Severe", f"Wind {wind_mph:.0f} mph + {load_weight_lb:,.0f} lb load -> Severe"
+    if effective_wind >= 55:
+        load_risk, load_cause = "No Travel", f"{wind_source} {effective_wind:.0f} mph >= 55 -> No Travel (any load)"
+    elif 45 <= effective_wind < 55 and load_weight_lb > 30000:
+        load_risk, load_cause = "No Travel", f"{wind_source} {effective_wind:.0f} mph + {load_weight_lb:,.0f} lb load -> No Travel"
+    elif 35 <= effective_wind < 45 and load_weight_lb > 40000:
+        load_risk, load_cause = "Severe", f"{wind_source} {effective_wind:.0f} mph + {load_weight_lb:,.0f} lb load -> Severe"
     risk = max((base_risk, load_risk), key=lambda level: RISK_SCORE[level])
     if load_cause and risk == load_risk:
         return risk, load_cause
@@ -162,13 +172,14 @@ def forecast_for_points(points: list[tuple[float, float, datetime]]) -> list[dic
     output: list[dict | None] = [None] * len(points)
     unique: dict[tuple[float, float], list[int]] = {}
     for index, (lat, lng, _) in enumerate(points):
-        unique.setdefault((round(lat, 2), round(lng, 2)), []).append(index)
+        # ~11 metre precision avoids merging weather samples that are a kilometre apart.
+        unique.setdefault((round(lat, 4), round(lng, 4)), []).append(index)
     locations = list(unique)
 
     def fetch_batch(batch: list[tuple[float, float]]) -> tuple[list[tuple[float, float]], list[dict]]:
         params = urlencode({
             "latitude": ",".join(str(lat) for lat, _ in batch), "longitude": ",".join(str(lng) for _, lng in batch),
-            "hourly": "wind_speed_10m,rain,showers,snowfall", "wind_speed_unit": "mph", "precipitation_unit": "inch", "snowfall_unit": "inch", "timezone": "UTC", "forecast_days": 16,
+            "hourly": "wind_speed_10m,wind_gusts_10m,rain,showers,snowfall", "wind_speed_unit": "mph", "precipitation_unit": "inch", "snowfall_unit": "inch", "timezone": "UTC", "forecast_days": 16,
         })
         response = get_json(f"https://api.open-meteo.com/v1/forecast?{params}")
         forecasts = response if isinstance(response, list) else [response]
@@ -192,6 +203,7 @@ def forecast_for_points(points: list[tuple[float, float, datetime]]) -> list[dic
                         hour_index = min(range(len(times)), key=lambda i: abs((datetime.fromisoformat(times[i]) - datetime.fromisoformat(target)).total_seconds()))
                         output[index] = {
                             "wind_mph": float(hourly["wind_speed_10m"][hour_index] or 0),
+                            "wind_gust_mph": float(hourly.get("wind_gusts_10m", hourly["wind_speed_10m"])[hour_index] or 0),
                             # Open-Meteo's precipitation includes snow water equivalent.
                             # Rain plus showers is rain-only, so snow is not double counted.
                             "rain_in_hr": float(hourly["rain"][hour_index] or 0) + float(hourly["showers"][hour_index] or 0),
@@ -218,6 +230,30 @@ def rank_routes(routes: list[dict]) -> list[dict]:
     )
 
 
+def _eta_minutes_at_mile(raw_route: dict, mile: float) -> float:
+    """Use OSRM's per-road-step durations rather than one constant trip speed."""
+    total_miles, total_minutes = raw_route["distance_miles"], raw_route["duration_minutes"]
+    if mile <= 0 or total_miles <= 0:
+        return 0.0
+    if mile >= total_miles:
+        return total_minutes
+    profile = raw_route.get("travel_profile") or []
+    if not profile:
+        return total_minutes * mile / total_miles
+    profile_miles = profile[-1][0]
+    if profile_miles <= 0:
+        return total_minutes * mile / total_miles
+    target = mile * profile_miles / total_miles
+    previous_miles = previous_minutes = 0.0
+    for end_miles, end_minutes in profile:
+        if target <= end_miles:
+            step_miles = end_miles - previous_miles
+            ratio = (target - previous_miles) / step_miles if step_miles else 0
+            return previous_minutes + ratio * (end_minutes - previous_minutes)
+        previous_miles, previous_minutes = end_miles, end_minutes
+    return total_minutes
+
+
 def build_analysis(request_data: dict) -> dict:
     origin, destination = request_data["origin"], request_data["destination"]
     departure = datetime.fromisoformat(request_data["departure_time"].replace("Z", "+00:00"))
@@ -237,7 +273,7 @@ def build_analysis(request_data: dict) -> dict:
             if mile >= miles:
                 break
             point = interpolate_geometry(geometry, mile)
-            eta = departure + timedelta(minutes=minutes * mile / miles)
+            eta = departure + timedelta(minutes=_eta_minutes_at_mile(raw, mile))
             checks.append({"mile": mile, "point": point, "eta": eta, "name": f"Checkpoint at mile {mile}"})
             point_requests.append((point[1], point[0], eta))
         terminal_eta = departure + timedelta(minutes=minutes)
@@ -287,7 +323,7 @@ def heatmap_points(routes: list[dict], hour: int, layer: str, departure: datetim
     positions, seen = [], set()
     for route in routes:
         for longitude, latitude in route["geometry"][::max(1, len(route["geometry"]) // 64)]:
-            key = (round(latitude, 2), round(longitude, 2))
+            key = (round(latitude, 4), round(longitude, 4))
             if key in seen:
                 continue
             seen.add(key)
@@ -296,11 +332,12 @@ def heatmap_points(routes: list[dict], hour: int, layer: str, departure: datetim
     forecast = forecast_for_points([(lat, lng, valid_time) for lat, lng in positions])
     points = []
     for (latitude, longitude), values in zip(positions, forecast):
-        wind_risk = _metric_risk(values["wind_mph"], (25, 35, 45, 55))
+        effective_wind = max(values["wind_mph"], values.get("wind_gust_mph", 0))
+        wind_risk = _metric_risk(effective_wind, (25, 35, 45, 55))
         rain_risk = _metric_risk(values["rain_in_hr"], (.1, .25, .5, 1), no_travel_at_limit=False)
         snow_risk = _metric_risk(values["snow_in_hr"], (.5, 1, 2, 3), no_travel_at_limit=False)
         if layer == "wind":
-            value, risk = values["wind_mph"], wind_risk
+            value, risk = effective_wind, wind_risk
         elif layer == "rain":
             value, risk = values["rain_in_hr"], rain_risk
         elif layer == "snow":
