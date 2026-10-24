@@ -7,6 +7,18 @@ from django.views.decorators.http import require_GET, require_POST
 from .services import FALLBACK_CITIES, ProviderUnavailable, build_analysis, get_json, heatmap_points
 from .models import TripAnalysis
 
+# Geographic bounds for the 48 contiguous states and District of Columbia.
+# They deliberately exclude Alaska, Hawaii, territories, and international
+# places before OSRM or forecast requests are made.
+CONTIGUOUS_US_BOUNDS = {"south": 24.396308, "north": 49.384358, "west": -124.848974, "east": -66.885444}
+
+
+def is_contiguous_us(lat: float, lng: float) -> bool:
+    return (
+        CONTIGUOUS_US_BOUNDS["south"] <= lat <= CONTIGUOUS_US_BOUNDS["north"]
+        and CONTIGUOUS_US_BOUNDS["west"] <= lng <= CONTIGUOUS_US_BOUNDS["east"]
+    )
+
 
 def error(message: str, status: int = 400):
     return JsonResponse({"detail": message}, status=status)
@@ -23,14 +35,18 @@ def geocode(request):
     if len(query) < 1:
         return JsonResponse([], safe=False)
     try:
-        data = get_json("https://geocoding-api.open-meteo.com/v1/search?name=" + query.replace(" ", "%20") + "&count=8&language=en&format=json")
-        result = [{"label": f"{item['name']}, {item.get('admin1') or item.get('country', '')}".rstrip(", "), "lat": item["latitude"], "lng": item["longitude"]} for item in data.get("results", [])]
+        data = get_json("https://geocoding-api.open-meteo.com/v1/search?name=" + query.replace(" ", "%20") + "&count=30&language=en&format=json")
+        result = [
+            {"label": f"{item['name']}, {item.get('admin1') or item.get('country', '')}".rstrip(", "), "lat": item["latitude"], "lng": item["longitude"]}
+            for item in data.get("results", [])
+            if item.get("country_code") == "US" and is_contiguous_us(float(item["latitude"]), float(item["longitude"]))
+        ][:8]
         if result:
             return JsonResponse(result, safe=False)
     except Exception:
         pass
     lowered = query.lower()
-    return JsonResponse([city for city in FALLBACK_CITIES if lowered in city["label"].lower()][:8], safe=False)
+    return JsonResponse([city for city in FALLBACK_CITIES if lowered in city["label"].lower() and is_contiguous_us(city["lat"], city["lng"])][:8], safe=False)
 
 
 @require_POST
@@ -44,8 +60,11 @@ def analyze_routes(request):
             place = payload[place_name]
             if not all(key in place for key in ("lat", "lng", "label")):
                 return error(f"{place_name} must include label, lat and lng.")
-            if not (-90 <= float(place["lat"]) <= 90 and -180 <= float(place["lng"]) <= 180):
+            lat, lng = float(place["lat"]), float(place["lng"])
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
                 return error(f"{place_name} coordinates are invalid.")
+            if not is_contiguous_us(lat, lng):
+                return error(f"{place_name} must be in the contiguous United States. Alaska, Hawaii, territories, and international locations are not supported.")
         if int(payload["checkpoint_interval_miles"]) not in (10, 25, 50):
             return error("checkpoint_interval_miles must be 10, 25 or 50.")
         if not 1 <= float(payload["load_weight_lb"]) <= 80000:

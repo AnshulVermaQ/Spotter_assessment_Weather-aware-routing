@@ -23,6 +23,8 @@ const USE_API = !explicitlyMocked;
 export const USING_MOCKS = explicitlyMocked;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const isContiguousUsPlace = (place: Place) =>
+  place.lat >= 24.396308 && place.lat <= 49.384358 && place.lng >= -124.848974 && place.lng <= -66.885444;
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (BASE === null) {
@@ -51,9 +53,9 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 export async function geocode(q: string): Promise<Place[]> {
   if (!USE_API) {
     await delay(150);
-    return mockGeocode(q);
+    return mockGeocode(q).filter(isContiguousUsPlace);
   }
-  return http<Place[]>(`/api/geocode?q=${encodeURIComponent(q)}`);
+  return (await http<Place[]>(`/api/geocode?q=${encodeURIComponent(q)}`)).filter(isContiguousUsPlace);
 }
 
 export async function analyzeRoutes(req: TripRequest): Promise<TripResponse> {

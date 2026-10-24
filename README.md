@@ -60,6 +60,10 @@ Viable routes are ranked, in order, by unrounded Severe miles, unrounded High
 miles, average risk score, then travel time. Routes containing a No Travel
 segment are not recommended.
 
+The planner accepts only locations in the contiguous United States. Alaska,
+Hawaii, U.S. territories, and international destinations are intentionally
+excluded.
+
 ## Production configuration
 
 Set these values in the Django host environment before deploying:

@@ -98,6 +98,29 @@ class RiskRulesTests(TestCase):
             response = self.client.post("/api/routes/analyze", data={**base, "departure_time": departure.isoformat()}, content_type="application/json")
             self.assertEqual(response.status_code, 400)
 
+    def test_non_contiguous_us_places_are_rejected(self):
+        base = {
+            "origin": {"label": "Chicago, IL", "lat": 41.8781, "lng": -87.6298},
+            "destination": {"label": "Anchorage, AK", "lat": 61.2181, "lng": -149.9003},
+            "departure_time": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            "load_weight_lb": 42000,
+            "checkpoint_interval_miles": 50,
+        }
+        response = self.client.post("/api/routes/analyze", data=base, content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("contiguous United States", response.json()["detail"])
+
+    @patch("planner.views.get_json")
+    def test_geocode_only_returns_contiguous_us_results(self, provider):
+        provider.return_value = {"results": [
+            {"name": "Seattle", "admin1": "Washington", "country_code": "US", "latitude": 47.6062, "longitude": -122.3321},
+            {"name": "Anchorage", "admin1": "Alaska", "country_code": "US", "latitude": 61.2181, "longitude": -149.9003},
+            {"name": "Toronto", "admin1": "Ontario", "country_code": "CA", "latitude": 43.6532, "longitude": -79.3832},
+        ]}
+        response = self.client.get("/api/geocode?q=sea")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"label": "Seattle, Washington", "lat": 47.6062, "lng": -122.3321}])
+
     @patch("planner.services.get_json", side_effect=OSError("provider offline"))
     def test_provider_outage_is_an_explicit_503_not_synthetic_data(self, _get_json):
         payload = {
