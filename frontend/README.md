@@ -34,9 +34,8 @@ Set `VITE_USE_MOCKS=true` only to work on the interface without starting Django.
 - `GET /api/geocode?q=Chicago` — Open-Meteo city search, with common US-city fallback.
 - `POST /api/routes/analyze` — route geometry, checkpoint weather/risk, summaries, and recommendation.
 - `GET /api/heatmap?trip_id=...&hour=0..48&layer=wind|rain|snow|combined` — trip-corridor heatmap points.
-- `GET /api/pois?route_id=route_a` — map support stops for the selected route.
 
-The provider adapters use public, keyless OSRM and Open-Meteo endpoints. Every displayed route is a road geometry returned by OSRM; every checkpoint and heatmap value is an Open-Meteo hourly forecast at its displayed time. If either provider is unavailable, the API returns `503 Service Unavailable` rather than inventing a route or weather condition.
+The provider adapters use public, keyless OSRM and Open-Meteo endpoints. Every displayed route is a road geometry returned by OSRM; every checkpoint and heatmap value is an Open-Meteo hourly forecast at its displayed time. The map intentionally has no fabricated fuel, hotel, or truck-stop markers. If either provider is unavailable, the API returns `503 Service Unavailable` rather than inventing a route or weather condition.
 
 ## Risk policy
 

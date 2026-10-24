@@ -1,15 +1,12 @@
 import { useEffect } from "react";
 import {
-  BedDouble,
   CloudRain,
   Eye,
   EyeOff,
-  Fuel,
   Layers,
   Milestone,
   Pause,
   Play,
-  Truck,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -31,10 +28,7 @@ const panel =
   "rounded-xl border bg-card/85 shadow-float backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-500";
 
 const TOOLS = [
-  { id: "fuel", label: "FuelSeek", icon: Fuel },
   { id: "weather", label: "WeatherSeek", icon: CloudRain },
-  { id: "truckstop", label: "Truck stops", icon: Truck },
-  { id: "hotel", label: "Hotels", icon: BedDouble },
   { id: "interstates", label: "Interstates", icon: Milestone },
 ] as const;
 
@@ -57,7 +51,6 @@ export function MapToolbar() {
             poi[id]
               ? "bg-primary text-primary-foreground shadow-md"
               : "bg-secondary/70 text-secondary-foreground hover:bg-accent",
-            i === 2 && "md:ml-2",
           )}
         >
           <Icon className="size-4" aria-hidden />

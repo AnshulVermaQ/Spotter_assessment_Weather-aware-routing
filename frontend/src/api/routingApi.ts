@@ -1,14 +1,12 @@
 // Single API service layer. It can use a direct deployed API or Vite's local proxy.
 import type {
-  Poi,
-  Route,
   HeatmapLayer,
   HeatmapResponse,
   Place,
   TripRequest,
   TripResponse,
 } from "@/types";
-import { mockAnalyze, mockGeocode, mockHeatmap, mockPois } from "@/mocks/data";
+import { mockAnalyze, mockGeocode, mockHeatmap } from "@/mocks/data";
 import { useTripStore } from "@/hooks/useTripStore";
 
 const configuredBase = (import.meta.env["VITE_API_BASE_URL"] as string | undefined)?.replace(
@@ -20,13 +18,18 @@ const useLocalProxy = import.meta.env["VITE_USE_LOCAL_API_PROXY"] === "true";
 // An empty BASE with `useLocalProxy` deliberately means same-origin `/api`.
 // Vite forwards it to Django; this works in browser-preview environments where
 // the browser cannot access the host's 127.0.0.1 directly.
-const BASE = explicitlyMocked ? "" : (configuredBase ?? "");
-const USE_API = !explicitlyMocked && (Boolean(configuredBase) || useLocalProxy);
-export const USING_MOCKS = !USE_API;
+const BASE = explicitlyMocked ? "" : (configuredBase ?? (useLocalProxy ? "" : null));
+const USE_API = !explicitlyMocked;
+export const USING_MOCKS = explicitlyMocked;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  if (BASE === null) {
+    throw new Error(
+      "The API URL is not configured. Set VITE_API_BASE_URL or set VITE_USE_LOCAL_API_PROXY=true, then restart the frontend.",
+    );
+  }
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -76,12 +79,4 @@ export async function getHeatmap(
   return http<HeatmapResponse>(
     `/api/heatmap?trip_id=${encodeURIComponent(tripId)}&route_ids=${routeIds.join(",")}&hour=${hour}&layer=${layer}`,
   );
-}
-
-export async function getPois(route: Route): Promise<Poi[]> {
-  if (!USE_API) {
-    await delay(80);
-    return mockPois(route);
-  }
-  return http<Poi[]>(`/api/pois?route_id=${encodeURIComponent(route.id)}`);
 }

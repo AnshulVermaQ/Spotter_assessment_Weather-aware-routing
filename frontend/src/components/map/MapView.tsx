@@ -7,11 +7,9 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTripStore } from "@/hooks/useTripStore";
 import { useHeatmap } from "@/hooks/useHeatmap";
-import { useQuery } from "@tanstack/react-query";
-import { getPois } from "@/api/routingApi";
 import { MAP_RECOLOR } from "@/lib/mapStyle";
 import { RISK_HEX, ROUTE_HEX, ROUTE_LETTER, formatTime } from "@/lib/risk";
-import type { Checkpoint, HeatmapPoint, Poi, Route } from "@/types";
+import type { Checkpoint, HeatmapPoint, Route } from "@/types";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -29,7 +27,7 @@ const riskColorExpr = [
   RISK_HEX.Severe,
   RISK_HEX["No Travel"],
 ] as unknown as maplibregl.ExpressionSpecification;
-
+const HEAT_WEIGHT = { Low: 0.2, Moderate: 0.4, High: 0.6, Severe: 0.8, "No Travel": 1 };
 function popupHtml(c: Checkpoint) {
   const esc = (s: string) =>
     s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
@@ -42,31 +40,13 @@ function popupHtml(c: Checkpoint) {
 }
 
 const SVG: Record<string, string> = {
-  fuel: '<path d="M3 22h12M4 9h10M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 4 0V9.83a2 2 0 0 0-.59-1.42L18 5"/>',
-  truckstop:
-    '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 9.38a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
-  hotel:
-    '<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4M12 4v6M2 18h20"/>',
   rain: '<path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2M16 14v6M8 14v6M12 16v6"/>',
   snow: '<path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2M8 15h.01M8 19h.01M12 17h.01M12 21h.01M16 15h.01M16 19h.01"/>',
   wind: '<path d="M12.8 19.6A2 2 0 1 0 14 16H2M17.5 8a2.5 2.5 0 1 1 2 4H2M9.8 4.4A2 2 0 1 1 11 8H2"/>',
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
 };
-const POI_BG: Record<string, string> = { fuel: "#2563eb", truckstop: "#0d9488", hotel: "#7c3aed" };
 const icon = (k: string) =>
   `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${SVG[k]}</svg>`;
-function poiEl(p: Poi, i: number) {
-  const d = document.createElement("div");
-  d.className =
-    "animate-pop grid size-7 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-float cursor-pointer";
-  d.style.background = POI_BG[p.kind]!;
-  d.style.animationDelay = `${i * 40}ms`;
-  d.innerHTML = icon(p.kind);
-  d.setAttribute("aria-label", `${p.name} at mile ${p.mile}`);
-  const wrap = document.createElement("div");
-  wrap.appendChild(d);
-  return wrap;
-}
 function wxEl(c: Checkpoint, i: number) {
   // Display-only icon choice from backend-provided values.
   const k =
@@ -92,7 +72,7 @@ const heatFC = (pts: HeatmapPoint[]): GeoJSON.FeatureCollection => ({
   features: pts.map((p) => ({
     type: "Feature",
     geometry: { type: "Point", coordinates: [p.lng, p.lat] },
-    properties: { risk: p.risk, value: p.value },
+    properties: { risk: p.risk, value: p.value, weight: HEAT_WEIGHT[p.risk] },
   })),
 });
 
@@ -114,13 +94,6 @@ export default function MapView() {
   const poi = useTripStore((s) => s.poi);
   const mobileView = useTripStore((s) => s.mobileView);
   const selRoute = result?.routes.find((r) => r.id === selectedId);
-  const { data: pois } = useQuery({
-    queryKey: ["pois", selRoute?.id, result],
-    queryFn: () => getPois(selRoute!),
-    enabled: !!selRoute,
-    retry: false,
-  });
-  const poiMarkers = useRef<maplibregl.Marker[]>([]);
   const wxMarkers = useRef<maplibregl.Marker[]>([]);
   const drawRef = useRef<number>(0);
   const motorwayOrig = useRef<Record<string, unknown>>({});
@@ -161,14 +134,23 @@ export default function MapView() {
         map.addSource(s, { type: "geojson", data: EMPTY });
         map.addLayer({
           id: s,
-          type: "circle",
+          type: "heatmap",
           source: s,
           paint: {
-            "circle-color": riskColorExpr,
-            "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 4, 22, 8, 260],
-            "circle-blur": 0.7,
-            "circle-opacity": 0,
-            "circle-opacity-transition": { duration: 350 },
+            "heatmap-weight": ["get", "weight"],
+            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 3, 0.7, 8, 2.2],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 3, 20, 8, 105],
+            "heatmap-color": [
+              "interpolate", ["linear"], ["heatmap-density"],
+              0, "rgba(0,0,0,0)",
+              0.16, "#22c55e",
+              0.38, "#eab308",
+              0.62, "#f97316",
+              0.82, "#ef4444",
+              1, "#a855f7",
+            ],
+            "heatmap-opacity": 0,
+            "heatmap-opacity-transition": { duration: 350 },
           },
         });
       }
@@ -384,37 +366,16 @@ export default function MapView() {
     const map = mapRef.current;
     if (!map || !ready) return;
     if (!heatOn || !heat) {
-      map.setPaintProperty("heat-a", "circle-opacity", 0);
-      map.setPaintProperty("heat-b", "circle-opacity", 0);
+      map.setPaintProperty("heat-a", "heatmap-opacity", 0);
+      map.setPaintProperty("heat-b", "heatmap-opacity", 0);
       return;
     }
     const next = heatSlot.current === "a" ? "b" : "a";
     (map.getSource(`heat-${next}`) as GeoJSONSource).setData(heatFC(heat.points));
-    map.setPaintProperty(`heat-${next}`, "circle-opacity", 0.62);
-    map.setPaintProperty(`heat-${heatSlot.current}`, "circle-opacity", 0);
+    map.setPaintProperty(`heat-${next}`, "heatmap-opacity", 0.62);
+    map.setPaintProperty(`heat-${heatSlot.current}`, "heatmap-opacity", 0);
     heatSlot.current = next;
   }, [ready, heat, heatOn]);
-
-  // POI markers
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !ready) return;
-    poiMarkers.current.forEach((m) => m.remove());
-    poiMarkers.current = [];
-    (pois ?? [])
-      .filter((p) => poi[p.kind])
-      .forEach((p, i) => {
-        const m = new maplibregl.Marker({ element: poiEl(p, i) })
-          .setLngLat([p.lng, p.lat])
-          .setPopup(
-            new maplibregl.Popup({ offset: 14 }).setHTML(
-              `<div style="font-size:12px"><b>${p.name}</b><div style="opacity:.75">Mile ${p.mile} · ${p.kind === "fuel" ? "Diesel · DEF" : p.kind === "hotel" ? "Truck parking" : "Truck services"}</div></div>`,
-            ),
-          )
-          .addTo(map);
-        poiMarkers.current.push(m);
-      });
-  }, [ready, pois, poi.fuel, poi.truckstop, poi.hotel]);
 
   // Animated weather icons
   useEffect(() => {

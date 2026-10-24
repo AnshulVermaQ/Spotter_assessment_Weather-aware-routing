@@ -1,11 +1,21 @@
 """Django settings for the WeatherWise planner API."""
 from pathlib import Path
 import os
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "development-only-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=false.")
+    SECRET_KEY = "local-development-key-not-for-production"
 ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h]
+CORS_ALLOWED_ORIGINS = {
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8090,http://127.0.0.1:8090").split(",")
+    if origin.strip()
+}
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

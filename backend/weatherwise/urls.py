@@ -6,5 +6,4 @@ urlpatterns = [
     path("api/geocode", views.geocode),
     path("api/routes/analyze", views.analyze_routes),
     path("api/heatmap", views.heatmap),
-    path("api/pois", views.pois),
 ]

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,6 +37,19 @@ const sharedEnv = {
   VITE_USE_LOCAL_API_PROXY: "false",
   VITE_USE_MOCKS: "false",
 };
+
+// The heatmap cache is persistent Django data, not an in-memory development
+// object. Ensure a fresh checkout creates the table before the API accepts a
+// route request.
+const migration = spawnSync("python", ["manage.py", "migrate", "--noinput"], {
+  cwd: backend,
+  stdio: "inherit",
+  env: sharedEnv,
+});
+if (migration.status !== 0) {
+  process.exitCode = migration.status ?? 1;
+  throw new Error("Django migrations failed; the development servers were not started.");
+}
 
 console.log(`Starting Django API on http://${apiHost}:${apiPort} …`);
 start(

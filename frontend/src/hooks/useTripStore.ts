@@ -15,7 +15,7 @@ interface TripState {
   simulateNoTravel: boolean;
   /** True once the stored trip has been read back (or the read was refused). */
   hasHydrated: boolean;
-  poi: Record<"fuel" | "weather" | "truckstop" | "hotel" | "interstates", boolean>;
+  poi: Record<"weather" | "interstates", boolean>;
   mobileView: "plan" | "map";
   togglePoi: (k: keyof TripState["poi"]) => void;
   setMobileView: (v: "plan" | "map") => void;
@@ -44,7 +44,7 @@ export const useTripStore = create<TripState>()(
       playing: false,
       simulateNoTravel: false,
       hasHydrated: false,
-      poi: { fuel: true, weather: true, truckstop: false, hotel: false, interstates: false },
+      poi: { weather: true, interstates: false },
       mobileView: "plan",
       togglePoi: (k) => set((s) => ({ poi: { ...s.poi, [k]: !s.poi[k] } })),
       setMobileView: (mobileView) => set({ mobileView }),

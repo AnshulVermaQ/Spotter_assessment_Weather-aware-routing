@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
-from threading import Lock
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 from .services import FALLBACK_CITIES, ProviderUnavailable, build_analysis, get_json, heatmap_points
-
-TRIPS: dict[str, dict] = {}
-ROUTE_TRIPS: dict[str, str] = {}
-LOCK = Lock()
+from .models import TripAnalysis
 
 
 def error(message: str, status: int = 400):
@@ -54,12 +50,16 @@ def analyze_routes(request):
             return error("checkpoint_interval_miles must be 10, 25 or 50.")
         if not 1 <= float(payload["load_weight_lb"]) <= 80000:
             return error("load_weight_lb must be between 1 and 80,000.")
-        datetime.fromisoformat(payload["departure_time"].replace("Z", "+00:00"))
+        departure = datetime.fromisoformat(payload["departure_time"].replace("Z", "+00:00"))
+        if departure.tzinfo is None:
+            departure = departure.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        if departure < now:
+            return error("Departure time must be in the future.")
+        if departure > now + timedelta(days=16):
+            return error("Departure time must be within the 16-day forecast window.")
         result = build_analysis(payload)
-        with LOCK:
-            TRIPS[result["trip_id"]] = result
-            for route in result["routes"]:
-                ROUTE_TRIPS[route["id"]] = result["trip_id"]
+        TripAnalysis.objects.update_or_create(trip_id=result["trip_id"], defaults={"payload": result})
         return JsonResponse(result)
     except ProviderUnavailable as exc:
         return error(str(exc), 503)
@@ -75,28 +75,19 @@ def heatmap(request):
         layer = request.GET.get("layer", "combined")
         if not 0 <= hour <= 48 or layer not in {"wind", "rain", "snow", "combined"}:
             return error("hour must be 0–48 and layer must be wind, rain, snow, or combined.")
-        trip = TRIPS.get(trip_id)
-        if not trip:
-            return error("Trip data has expired. Analyze the route again.", 404)
+        analysis = TripAnalysis.objects.filter(trip_id=trip_id).only("payload", "heatmaps").first()
+        if not analysis:
+            return error("Trip analysis was not found. Analyze the route again.", 404)
+        trip = analysis.payload
+        cache_key = f"{hour}:{layer}"
+        if cached := analysis.heatmaps.get(cache_key):
+            return JsonResponse(cached)
         departure = datetime.fromisoformat(trip["departure_time"])
-        return JsonResponse(heatmap_points(trip["routes"], hour, layer, departure))
+        response = heatmap_points(trip["routes"], hour, layer, departure)
+        analysis.heatmaps = {**analysis.heatmaps, cache_key: response}
+        analysis.save(update_fields=["heatmaps", "updated_at"])
+        return JsonResponse(response)
     except ProviderUnavailable as exc:
         return error(str(exc), 503)
     except (TypeError, ValueError) as exc:
         return error(f"Invalid heatmap request: {exc}")
-
-
-@require_GET
-def pois(request):
-    route_id = request.GET.get("route_id", "")
-    trip_id = ROUTE_TRIPS.get(route_id)
-    route = next((route for route in TRIPS.get(trip_id, {}).get("routes", []) if route["id"] == route_id), None)
-    if not route:
-        return JsonResponse([], safe=False)
-    names = {"fuel": ["Pilot Travel Center", "Love's Travel Stop", "Flying J"], "truckstop": ["Truck Parking & Rest Area", "Weigh Station", "Big Rig Plaza"], "hotel": ["Comfort Inn", "Holiday Inn Express", "Days Inn"]}
-    result = []
-    for index in range(2, 14):
-        position = route["geometry"][round((len(route["geometry"]) - 1) * index / 15)]
-        kind = ("fuel", "truckstop", "hotel")[index % 3]
-        result.append({"id": f"{route_id}-{index}", "kind": kind, "name": names[kind][index % 3], "lat": position[1] + (0.035 if index % 2 else -0.035), "lng": position[0] + 0.025, "mile": round(route["distance_miles"] * index / 15)})
-    return JsonResponse(result, safe=False)

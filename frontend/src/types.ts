@@ -74,14 +74,3 @@ export interface HeatmapResponse {
   valid_time: string;
   points: HeatmapPoint[];
 }
-
-export type PoiKind = "fuel" | "truckstop" | "hotel";
-
-export interface Poi {
-  id: string;
-  kind: PoiKind;
-  name: string;
-  lat: number;
-  lng: number;
-  mile: number;
-}
